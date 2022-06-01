@@ -1,0 +1,571 @@
+---
+title: "Intro to ML Final Exam 2"
+author: "Abhinav Sharma, Charan Musunuru, Anant Gupta, Mahika Bansal"
+date: "16/8/2021"
+always_allow_html: true
+output:
+  pdf_document: 
+  html_document:
+    df_print: paged
+
+---
+Raw .Rmd code available at ----- https://github.com/abhinav-sharma-6167/Intro-to-ML-2
+
+
+Setup - Loading libraries and setting working directory. 
+Key libraries include ggplot2, plotly for exploration; data.table and dplyr data wrangling. Setting up custom ggplot theme for all plotting purposes. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE , comment=NA , fig.width=7.5, fig.height=4.5)
+#########################
+##Cleaning Data and EDA##
+#########################
+#Install libraries if not installed, else load them-----------------------------
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+# usage
+packages <- c("ggplot2", "plotly", "data.table" , "dplyr" ,"Hmisc","DescTools","mosaic","chron","quantmod","foreach","GGally","reshape2","arules","arulesViz","tidyverse","RColorBrewer","FactoMineR","factoextra")
+ipak(packages)
+
+options(scipen=999)
+
+#Set seed and working directory-------------------------------------------------
+set.seed(100)
+setwd("~/Documents/GitHub/Intro-to-ML-2")
+
+#, base_family="Avenir"
+theme_custom <- function (text_size=12) { 
+    theme_bw(base_size=text_size) %+replace% 
+        theme(
+            panel.background  = element_blank(),
+            plot.background = element_rect(fill="gray96", colour=NA), 
+            legend.background = element_rect(fill="transparent", colour=NA),
+            legend.key = element_rect(fill="transparent", colour=NA)
+        )
+}
+
+```
+
+## 1. Visual story telling part 1: green buildings
+
+The details given in the case helps us get a sense of the problem. To quickly summarize, the data encompasses of 7,894 commercial rental properties of which 685 are green buildings.To avail a control set for the 685 properties, the creators of this data leveraged all non-rated buildings within a quarter-mile radius of the green-certified building. On average we have 12 non-rated nearby properties for each green property. The idea is green houses would be more attractive living options given lower recurring costs, better indoor environments, longer economically valuable lives and in general, the good PR they enjoy. The goal is to validate whether investing in a green building be worth it, from an economic perspective. Specifically, in a new 15-story mixed-use building on East Cesar Chavez, just across I-35 from downtown with baseline construction costs being $100 million and a 5% expected premium for green certification.
+
+Building upon this premise, we now start exploring the data. We start by checking the number of green houses and distributions of the variables used in stat-guru's analysis to stress-test the assumptions made.
+
+```{r}
+
+house_df <- data.table::fread("greenbuildings.csv")
+cat("Percentage of green buildings : \n",100*round(prop.table(table(house_df$green_rating)),4)[2],"%")
+
+```
+
+
+```{r warning=FALSE, message=  FALSE}
+house_df$green_rating_fc <- as.factor(as.character(house_df$green_rating))
+levels (house_df$green_rating_fc) <- c("Non-green","Green")
+ggplot(house_df[house_df$leasing_rate > 10] ,aes(x= Rent , fill = green_rating_fc)) + geom_density(size = 0.25, alpha = 0.65) + theme_custom()
+
+cat("Summary Stats : ")
+round(house_df[leasing_rate > 10,by=green_rating,
+         .(Mean_Rent = mean(Rent), Med_Rent = median(Rent) , SD_Rent = sd(Rent) ,IQR_Rent = IQR(Rent))],2)
+
+cat("\n\n")
+
+```
+We see Rent for green houses is slightly larger than other houses. The rent variable is extremely right skewed so it makes sense to use median as the measure for centrality instead of mean. The statistical summary suggests Rent distribution is slightly more spread out for non-green buildings given it has higher SD and IQR. However, the graph looks pretty much the same for both categories implying, non-green building Rent has more outliers compared to green buildings.
+
+
+However, this difference in medians could arise due to multiple confounding variables. Few hypotheses for this price change could be :
+  1.    Properties with higher size may have higher rent
+  2.    Older houses might have lower rent
+  3.    Renovated houses may have higher rent
+  4.    Houses in better class society and with more amenities may have higher rent
+  5.    Houses with more Gas and Electricity costs may have higher rent, given they have more high energy-consuming facilities 
+  6.    Only specific type of green buildings (say LEED) may offer difference in rent
+
+Let's explore them one by one. We use the non-parametric Generalized Additive Model (GAM) based smoothening to capture the non-linearity in the trends in our scatter plots.
+
+
+
+```{r warning=FALSE, message=  FALSE}
+
+ggplot(house_df[house_df$leasing_rate > 10] ,aes(x= size , y = Rent , color = green_rating_fc)) + 
+  geom_point(size = 1.65, alpha = 0.55) + theme_custom() + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 0] ,aes(x=size, y=Rent , color = "Non-green trend") , method = "loess", se=F , alpha = 0.85 , fullrange = T , size = 0.4 ,  linetype = 5) + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 1] ,aes(x=size, y=Rent,  color = "Green trend") , method = "loess", se=F , alpha = 0.85  , fullrange=T ,  size = 0.4 , linetype = 5) +
+  scale_colour_manual(name="", values=c("#00BFC4","blue","#F8766D", "black"))
+
+cat("\n\n")
+```
+We observe almost no difference in Rent for green buildings vs other uptil size 900000, post which rent of non-green buildings slightly increases. However, this difference could be due to more outliers for non-green category and the confidence intervals of the fitted curves would intersect, negating any significance associated with this difference.
+
+
+```{r warning=FALSE, message=  FALSE}
+
+ggplot(house_df[house_df$leasing_rate > 10] ,aes(x= age , y = Rent , color = green_rating_fc)) + 
+  geom_point(size = 1.65, alpha = 0.55) + theme_custom() + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 0] ,aes(x=age, y=Rent , color = "Non-green trend") , method = "loess", se=F , alpha = 0.85 , fullrange = T , size = 0.4 ,  linetype = 5) + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 1] ,aes(x=age, y=Rent,  color = "Green trend") , method = "loess", se=F , alpha = 0.85  , fullrange=T ,  size = 0.4 , linetype = 5) +
+  scale_colour_manual(name="", values=c("#00BFC4","blue","#F8766D", "black"))
+
+cat("\n\n")
+```
+
+We see for houses aged 40-90 have some differenciation in rent with respect to houses being green vs non-green
+
+
+```{r warning=FALSE, message=  FALSE}
+
+ggplot(house_df[house_df$leasing_rate > 10] ,aes(x= Electricity_Costs , y = Rent , color = green_rating_fc)) + 
+  geom_point(size = 1.65, alpha = 0.55) + theme_custom() + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 0] ,aes(x=Electricity_Costs, y=Rent , color = "Non-green trend") , method = "gam", se=F , alpha = 0.85 , fullrange = T , size = 0.4 ,  linetype = 5) + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 1] ,aes(x=Electricity_Costs, y=Rent,  color = "Green trend") , method = "gam", se=F , alpha = 0.85  , fullrange=T ,  size = 0.4 , linetype = 5) +
+  scale_colour_manual(name="", values=c("#00BFC4","blue","#F8766D", "black"))
+
+cat("\n\n")
+```
+
+```{r warning=FALSE, message=  FALSE}
+
+suppressMessages(suppressWarnings(ggplot(house_df[house_df$leasing_rate > 10] ,aes(x= Gas_Costs , y = Rent , color = green_rating_fc)) + 
+  geom_point(size = 1.65, alpha = 0.55) + theme_custom() + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 0] ,aes(x=Gas_Costs, y=Rent , color = "Non-green trend") , method = "gam", se=F , alpha = 0.85 , fullrange = T , size = 0.4 ,  linetype = 5) + 
+  geom_smooth(data=house_df[house_df$leasing_rate > 10 & house_df$green_rating == 1] ,aes(x=Gas_Costs, y=Rent,  color = "Green trend") , method = "gam", se=F , alpha = 0.85  , fullrange=T ,  size = 0.4 , linetype = 5) +
+  scale_colour_manual(name="", values=c("#00BFC4","blue","#F8766D", "black")) + xlim(c(0.009,0.018))))
+
+cat("\n\n")
+```
+There's hardly any difference in Gas and electricity utilization, apart from a small segment of Gas costs between 0.011-0.012 where green buildings have lesser gas costs.
+
+Even with continuous variables, we get the sense that the difference between prices of green building vs not wouldn't be as straightforwards as difference of median rents of the two categories. The localized regression trendlines convey that for certain properties of a house, some of the price difference could be explained by confounding variables such as age, gas costs.
+
+We also explore categorical variables and check whether different categories lead to change in Rent.
+
+```{r warning=FALSE, message=  FALSE}
+
+house_df$renovated_fc <- as.factor(as.character(paste0("Renovated : ",house_df$renovated)))
+house_df$class_a_fc <- as.factor(as.character(paste0("Class A : ",house_df$class_a)))
+house_df$amenities_fc <- as.factor(as.character(paste0("Amenities : ",house_df$amenities)))
+```
+
+
+```{r warning=FALSE, message=  FALSE , fig.width=7.5, fig.height=9}
+ggplot(house_df[house_df$leasing_rate > 10] ,aes(x= Rent , fill = green_rating_fc)) + geom_density(size = 0.25, alpha = 0.65) + theme_custom() +facet_grid(renovated_fc+amenities_fc ~ class_a_fc ) + xlim(c(0,150))
+
+
+```
+
+Rent of house being green vs non-green differs widely in distribution, specifically in cases where house is renovated, is in upper class society and has additional amenities. Given, East Cesar Chavez looks very developed and say, the house has undergone renovations and includes amenities, the stat-guru's assumption of all green houses having incremental rent of $2.6 than their non-green houses is erroneous. 
+
+```{r}
+cat("The median price difference in such a case would be : $",median(house_df$Rent[house_df$amenities+house_df$renovated + house_df$class_a == 3],na.rm = T) - median(house_df$Rent[house_df$amenities+house_df$renovated + house_df$class_a == 0],na.rm = T) )
+```
+
+This implies that the duration of cost recuperation would be higher than 7.7 years. Assuming, the real difference in medians upon accounting for all confounding variables was \$ 0.75, the premium of investment in a green building would be recovered in about 26.67 years. Hence, availing green status to ensure more probitability might not be a good strategy.
+
+
+Because the proportion of green buildings in very less, thereby green vs non-green buildings have unequal sample sizes. We can use Anova to have a final comparison of means of unequal samples and remove Rent higher than 100 as outlier. We can include covariates we've explored in the EDA above such as recurring costs, size and age of building, class and amenities to quantify their effect sizes.
+
+
+```{r}
+aov_ <- aov(Rent~green_rating_fc*(size+age+renovated+class_a+class_b+amenities+Gas_Costs+Electricity_Costs+empl_gr) , house_df)
+aov_summ <- summary(aov_)
+data.table(Feature = rownames(aov_summ[[1]][5]), Coef = round(as.numeric(aov_$coefficients),4) ,F_stat = round(aov_summ[[1]][4]$`F value`,4) ,P_val = round(aov_summ[[1]][5]$`Pr(>F)`,4) )
+
+```
+
+Supporting our EDA, we see all covariates have an impact on the rent of the building and solely attributing the rent to green status by differencing medians would be incorrect.
+
+
+
+## 2. Visual story telling part 2: flights at ABIA
+
+We start by exploring the data using summary functions such as str, summary, Hmisc::describe() and DescTools::Desc() to get a sense of the overall data. 
+
+```{r}
+abia <- data.table::fread("ABIA.csv")
+#summary(abia)
+#DescTools::Desc(abia)
+
+```
+
+Preliminary univariate EDA shows :
+1. DepTime and ArrTime have 1.4% and 1.6% missing values respectively. Variables CarrierDelay, WeatherDelay, NASDelay, SecurityDelay and LateAircraftDelay all have 80.1% missing values.
+2. There is some seasonality with respect to month with lesser flights towards year end in months Sept-Dec'08. Similarly there are fewer flights on weekends compared to weekdays.
+3. Total 16 unique airline carriers with top three carriers operating most flights being Southwest (WN), American Airlines (AA) and Continental (CO)
+4. ActualElapsedTime has bimodal distribution. ArrDelay, DepDelay distribution has very high kurtosis implying high number of outliers. Distance follows a spread-out distributions with 3 modes, meaning there could be some categorization such as local, national and international flights. Variables CarrierDelay, WeatherDelay, NASDelay, SecurityDelay and LateAircraftDelay
+5. Most incoming flights to and from Austin are connected with the cities DAL, DFW, IAH, PHX etc. 
+
+We start by studying if there is any pattern in Arrival and Departure delay by airline carriers.
+
+```{r warning=FALSE, message=FALSE , fig.width=7.5, fig.height=8}
+
+ggplot() + geom_density(data = abia , aes(x= ArrDelay,fill="Arrival Delay"),alpha=0.3 , size = 0.35)+ geom_density(data = abia , aes(x= DepDelay,fill="Departure Delay") ,alpha=0.3, size = 0.25)+facet_wrap(facets = vars(UniqueCarrier),scales = 'free') + xlim(c(-50,100)) +theme_custom() + scale_fill_manual(name='Delay Type\n', values = c('blue','salmon'))
+
+```
+
+We observe that Departure delays for most carriers are often less in magnitude (be it positive or negative) than arrival delays, with an exception being F9 carrier where arrival vs departure delays are more of less the same.
+
+```{r warning=FALSE, message=FALSE , fig.width=7.5, fig.height=8}
+#Segregate flights based on arrival or departure 
+abia_arr <- abia[Dest == 'AUS']
+abia_dep <- abia[!Dest == 'AUS']
+#abia_arr$Origin_fc = as.factor(ifelse(abia_arr$Origin %in% names(table(abia_arr$Origin)[1:5]) , abia_arr$Origin ,"Others"))
+
+ggplot() + geom_point(data = abia_arr , aes(x= ArrTime, y= ArrDelay , color = Distance),alpha=0.3 , size = 1.25)+facet_wrap(facets = vars(UniqueCarrier),scales = 'free_y') +theme_custom()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+Above graph shows Arrival Delays for flights arriving in Austin are particularly high when there are multiple flights of the same carrier arriving with very little time between each other.This could probably be explained by the air-space congestion issue. We also see marginally more delays when flights are for longer distances. Carriers YV and B6 have higher delays associated with them.
+
+
+```{r warning=FALSE, message=FALSE , fig.width=7.5, fig.height=8}
+
+ggplot() + geom_point(data = abia_dep , aes(x= DepTime, y= DepDelay , color = Distance),alpha=0.3 , size = 1.25)+facet_wrap(facets = vars(UniqueCarrier),scales = 'free_y') +theme_custom() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+ 
+We avail the same insight for Departure delays being more in number and magnitude when time between multiple flights lined one after another is very less. Additionally, we check for delays that are unexplained by the parameters to validate if there are any patterns therein as well.
+
+```{r warning=FALSE, message=FALSE , fig.width=7.5, fig.height=8}
+
+abia_dep[is.na(abia_dep)] <- 0
+abia_dep$UnexplainedDelay <- abia_dep$DepDelay - abia_dep$CarrierDelay - abia_dep$WeatherDelay - abia_dep$NASDelay - abia_dep$SecurityDelay - abia_dep$LateAircraftDelay
+
+ggplot() + geom_point(data = abia_dep , aes(x= DepTime, y= UnexplainedDelay , color = Distance),alpha=0.3 , size = 1.25)+facet_wrap(facets = vars(UniqueCarrier),scales = 'free_y') +theme_custom() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+We see fewer patterns in Unexplained Delay but still flights right after one another seem to be prone to delays, specially in carriers such as MQ, WN etc.
+
+
+## 3. Portfolio Modeling
+
+Portfolio includes 6 ETF's which has a mix of two large cap blend equities, a mid cap blend equity, a small cap blend equity, oil/gas commodity ETF and alternative energy equities. Blend equity ETF's are a mixture of growth as well as value equities, thereby ensuring an overall diverse portfolio to reduce risk associated with the investment.
+
+The stocks imported are energy, oil or gas commodities, large cap ETFs distributed between two securities, small and mid-cap respectively.
+
+
+```{r warning=FALSE, message=FALSE}
+# Import a few stocks
+mystocks_energy_cap = c("DBO", "QCLN", "RSP", "SCHD", "FNX", "DES")
+
+#Extract 5 year daily data
+myprices_energy_cap = getSymbols(mystocks_energy_cap, from = "2016-08-01")
+for(ticker in mystocks_energy_cap) {
+	expr = paste0(ticker, "a = adjustOHLC(", ticker, ")")
+	eval(parse(text=expr))
+}
+```
+
+```{r warning=FALSE, message=FALSE , fig.width=7.5, fig.height=8}
+# Combine all the returns in a matrix
+all_returns_energy_cap = cbind(ClCl(DBOa),ClCl(QCLNa), ClCl(RSPa),ClCl(SCHDa),ClCl(FNXa),ClCl(DESa))
+all_returns_energy_cap = (na.omit(all_returns_energy_cap))
+
+# Check correlations
+suppressWarnings(ggpairs(all_returns_energy_cap,progress = F ,aes(alpha=0.3))+theme_custom()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)))
+
+```
+For the first possibility, 60% capital is allocated for large cap ETF, 10% capital to small and mid cap ETF's each, 10% each for alternative energy and oil/gas commodities. For this allocation, if we invest \$100k, we are 95% confident that our worst 20 trading day loss will not exceed \$8052.51 with an average profit of \$1683.2
+
+
+```{r}
+all_returns_energy_cap <- as.matrix(all_returns_energy_cap)
+set.seed(100)
+initial_wealth = 100000
+sim1 = foreach(i=1:5000, .combine='rbind')%do%{
+	total_wealth = initial_wealth
+	weights = c(0.1, 0.1, 0.3, 0.3, 0.1, 0.1)
+	holdings = weights * total_wealth
+
+	n_days = 20
+	wealthtracker = rep(0, n_days)
+
+	for(today in 1:n_days) {
+
+		return.today = resample(all_returns_energy_cap, 1, orig.ids=FALSE)
+
+		holdings = holdings + holdings*return.today
+
+		total_wealth = sum(holdings)
+
+		wealthtracker[today] = total_wealth
+
+		holdings = weights * total_wealth
+
+	}
+	wealthtracker
+}
+```
+
+```{r}
+cat("\nMean : ",mean(sim1[,n_days]))
+cat("\nAverage Profit : ",mean(sim1[,n_days] - initial_wealth))
+```
+```{r , fig.width=7.5, fig.height=8}
+par(mfrow = c(2,1))
+#Visualizing the returns distribution
+hist(sim1[,n_days], 25 , col = 'lightblue', main = 'Portfolio 1 - Majority Large Caps' , xlab = 'Returns')
+# Profit/loss
+hist(sim1[,n_days]- initial_wealth, breaks=30 , col = 'lightblue', main = '' , xlab = 'Profit or Loss')
+```
+
+
+
+```{r}
+# 5% value at risk:
+cat("\n 5% Value at Risk : ",quantile(sim1[,n_days]- initial_wealth, prob=0.05),"\n")
+```
+For the second possibility, 40% capital is allocated for large cap ETF, 20% capital to small and mid cap ETF's each, 10% each for alternative energy and oil/gas commodities. For this allocation, if we invest \$100k, we are 95% confident that our worst 20 trading day loss will not exceed \$8526.64 with an average profit of \$2014.5
+
+```{r}
+# Now simulate many different possible futures
+# just repeating the above block thousands of times
+initial_wealth = 100000
+sim1 = foreach(i=1:5000, .combine='rbind') %do% {
+	total_wealth = initial_wealth
+	weights = c(0.1, 0.1, 0.2, 0.2, 0.2, 0.2)
+	holdings = weights * total_wealth
+	n_days = 20
+	wealthtracker = rep(0, n_days)
+	for(today in 1:n_days) {
+		return.today = resample(all_returns_energy_cap, 1, orig.ids=FALSE)
+		holdings = holdings + holdings*return.today
+		total_wealth = sum(holdings)
+		wealthtracker[today] = total_wealth
+		holdings = weights * total_wealth
+	}
+	wealthtracker
+}
+```
+
+```{r , fig.width=7.5, fig.height=8}
+# each row is a simulated trajectory
+# each column is a data
+par(mfrow = c(2,1))
+#Visualizing the returns distribution
+hist(sim1[,n_days], 25 , col = 'lightblue', main = 'Portfolio 2 - Mix of mid and large caps' , xlab = 'Returns')
+# Profit/loss
+hist(sim1[,n_days]- initial_wealth, breaks=30 , col = 'lightblue', main = '' , xlab = 'Profit or Loss')
+
+```
+```{r}
+cat("\nMean : ",mean(sim1[,n_days]))
+cat("\nAverage Profit : ",mean(sim1[,n_days] - initial_wealth))
+```
+
+
+```{r}
+# 5% value at risk:
+cat("\n 5% Value at Risk : ",quantile(sim1[,n_days]- initial_wealth, prob=0.05),"\n")
+```
+
+
+For the third possibility, 20% capital is allocated for large cap ETF, 10% capital to small and mid cap ETF's each, 30% each for alternative energy and oil/gas commodities. For this allocation, if we invest \$100k, we are 95% confident that our worst 20 trading day loss will not exceed \$8625.87 with an average profit of \$2058.61
+
+
+```{r}
+
+initial_wealth = 100000
+sim1 = foreach(i=1:5000, .combine='rbind') %do% {
+	total_wealth = initial_wealth
+	weights = c(0.3, 0.3, 0.1, 0.1, 0.1, 0.1)
+	holdings = weights * total_wealth
+	n_days = 20
+	wealthtracker = rep(0, n_days)
+	for(today in 1:n_days) {
+		return.today = resample(all_returns_energy_cap, 1, orig.ids=FALSE)
+		holdings = holdings + holdings*return.today
+		total_wealth = sum(holdings)
+		wealthtracker[today] = total_wealth
+		holdings = weights * total_wealth
+	}
+	wealthtracker
+}
+```
+
+```{r , fig.width=7.5, fig.height=8}
+par(mfrow = c(2,1))
+#Visualizing the returns distribution
+hist(sim1[,n_days], 25 , col = 'lightblue', main = 'Portfolio 3 - Majority Oil and Energy' , xlab = 'Returns')
+# Profit/loss
+hist(sim1[,n_days]- initial_wealth, breaks=30 , col = 'lightblue', main = '' , xlab = 'Profit or Loss')
+
+```
+
+
+```{r}
+cat("\nMean : ",mean(sim1[,n_days]))
+cat("\nAverage Profit : ",mean(sim1[,n_days] - initial_wealth))
+```
+
+
+```{r}
+# 5% value at risk:
+cat("\n 5% Value at Risk : ",quantile(sim1[,n_days]- initial_wealth, prob=0.05),"\n")
+```
+
+We tried a safe bet in a stable market, with major investments in large cap in Portfolio 1. Portfolio 2 had a well-balanced portfolio with equal proportion of initial wealth distributed amidst the large caps, mid and small caps to leverage diversification benefits. Portfolio 3 had more focus on high-risk high-reward bet on oil, gas and alternative energy ETFs given their volatility. It turns out, we see best returns with our Oil and Energy heavy portfolio, however value which worst 20 trading day loss will not exceed with 95% confidence also increases the most for this portfolio, given aforementioned volatility.
+
+## 4. Market Segmentation
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+social_marketing = read.csv("social_marketing.csv")
+#summary(social_marketing)
+
+```
+
+We start by exploring the datasets using boxplots to get a sense of univariate distributions of each of the variables. Boxplots help us understand which variables have more outliers or too spread out distributions that might not be helpful in explaining variance in dependent variable.
+
+```{r echo=FALSE, message = FALSE, warning=FALSE , fig.width=7.5 , fig.height=8}
+#checking null values
+null_Check <- t(as.data.frame(lapply(social_marketing,function(x) {length(which(is.na(x)))})))
+
+#checking nonzero values
+count_check <- t(as.data.frame(lapply(social_marketing,function(x) {length(which(x!=0))})))
+
+#Boxplot to check distributions and outliers
+par(mfrow=c(3,3))
+for(i in 2:ncol(social_marketing)){
+  boxplot(social_marketing[,i], main = colnames(social_marketing)[i])
+}
+
+```
+
+Further on, we explore bivariate associations by a corrplot. While we see few correlations in the 0.3-0.7 range, very few values are higher than that.
+
+```{r echo=FALSE, message = FALSE, warning=FALSE, fig.width=7.5 , fig.height=8}
+#CORRELATIONS
+cordata <- cor(social_marketing[,-1])
+melted_cordata <- melt(cordata)
+ggplot(data = melted_cordata, aes(x=Var1, y=Var2, fill=value)) + 
+geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+
+cordata2 <- melted_cordata[melted_cordata$Var1 != melted_cordata$Var2 & melted_cordata$value>0.6 , ]
+
+```
+
+Travel, politics and computers; sports fandom, religion and parenting; college university and online gaming; health nutrition, outdoors and personal fitness; cooking, beauty and fashion seem to have high correlations within tags.
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+##pca and hclust
+pca_data <- prcomp(social_marketing[,-1])
+#summary(pca_data)
+
+pr_var <-  pca_data$sdev ^ 2
+pve <- pr_var / sum(pr_var)
+plot(pve, xlab = "Principal Components", ylab = "Proportion of Variance Explained", ylim = c(0,1), type = 'b',main = 'Variance explained vs Number of PCs')
+```
+
+After, 7 Principal components there seems to be a drop of variation explained per component and thus this can be used for further analysis.The cumulative variance explained and variable intution from PCA: 
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+plot(cumsum(pve), xlab = "Principal Component", ylab = "Cumulative 
+     Proportion of Cumulative Var Explained", ylim =c(0,1), type = 'b')
+
+rot_loading <- varimax(pca_data$rotation[, 1:7])
+rot_loading
+
+```
+
+Similar to insights in correlation plots, we identified factors to be composed of sections related to health & fitness: health_nutrition, outdoors and personal_fitness; shopping, chatter and photo sharing related to shopping; travel, politics, news and computers, college segment: college_uni, online gaming and sports playing; chatter & photo sharing related to cooking, beauty, fashion and so on. We tried to analyze the same using k-means clustering 
+
+```{r  echo=FALSE, message = FALSE, warning=FALSE}
+
+# res.pca <- PCA(social_marketing[,-1], ncp = 7, graph = FALSE )
+# res.hcpc <- HCPC(res.pca, graph = FALSE, max=90)
+# fviz_dend(res.hcpc, 
+#          cex = 0.7,                     # Label size
+#         palette = "jco",               # Color palette see ?ggpubr::ggpar
+#          rect = TRUE, rect_fill = TRUE, # Add rectangle around groups
+#          rect_border = "jco",           # Rectangle color
+#          labels_track_height = 0.8      # Augment the room for labels
+#)
+
+# plot(res.hcpc)
+
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(df, k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+plot(k.values, wss_values,
+       type="b", pch = 19, frame = FALSE, 
+       xlab="Number of clusters K",
+       ylab="Total within-clusters sum of squares")
+
+final_model <- kmeans(social_marketing[,-1], k)
+final_model
+
+```
+
+Recommended number of clusters = 7. 
+
+
+## 5. 
+
+
+## 6. Association Mining Rules
+
+We are trying to identify patterns in shopping behavior of customers from a list of their grocery purchase. The most common items that are found in the list:
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+
+##loading the dataset to list of transactions
+groceries <- read.transactions("groceries.txt", format = "basket", sep = ",", rm.duplicates = T)
+#summary(groceries)
+itemFrequencyPlot(groceries,topN=20,col=brewer.pal(8,'Pastel2'),main='Relative Item Frequency Plot',
+                  type="absolute", ylab="Item Frequency (Relative)") 
+
+```
+
+Next we try to model for association mining rules based apriori algorithm:
+
+```{r echo=FALSE, message = FALSE, warning=FALSE}
+#modelling
+arulesgroceries <- apriori(groceries, parameter = list(support = 0.002, confidence = 0.01, maxlen = 40))
+#inspect(arulesgroceries)
+
+arulesgroceries <- apriori(groceries, parameter = list(support = 0.002, confidence = 0.1, maxlen = 10))
+#inspect(arulesgroceries)
+
+arulesgroceries <- apriori(groceries, parameter = list(support = 0.002, confidence = 0.3, maxlen = 10))
+#inspect(arulesgroceries)
+
+```
+
+We checked the results for rules varying support, confidence; we assumed that an item must occur atleast 20 times to be considered in a rule and tried to restrict confidence in successive turns, from 0.01 to 0.3, i.e. conditional probability of an item to be atleast 0.3 to be considered in the rule finally. We got around 3119 rules finally based on aforementioned conditions. Next we restrict with conditions on lift, an item should be atleast 5 times more likely to occur with the associated items in the list.
+
+```{r  message = FALSE, warning=FALSE}
+
+plot(arulesgroceries)
+
+inspect(subset(arulesgroceries, subset = lift>5))
+
+plot(head(sort(subset(arulesgroceries, subset = lift>5), by="support"), 20),
+     method="graph", control=list(cex=.9))
+
+plot(head(sort(subset(arulesgroceries, subset = lift>5), by="lift"), 20),
+     method="graph", control=list(cex=.9))
+```
+
+
+
