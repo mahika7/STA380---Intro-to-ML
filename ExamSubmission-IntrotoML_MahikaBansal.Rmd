@@ -1,0 +1,748 @@
+---
+title: "Exam Submission"
+author: "Mahika Bansal"
+date: "8/01/2021"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1) ISLR Chapter 2 Q10: This exercise involves the Boston housing data set.
+
+## (a) To begin, load in the Boston data set. The Boston data set is part of the MASS library in R
+
+```{r loading the data set for q10, echo=FALSE, message = FALSE, warning=FALSE}
+library(MASS)
+library(ISLR)
+library(dplyr)
+library(pls)
+library(gbm)
+data(Boston)
+boston = Boston
+```
+
+Ans: The data:
+
+```{r checking the dataset for q10, echo=FALSE}
+head(boston)
+```
+
+```{r checking the dimensions for q10, echo=FALSE}
+str(Boston)
+```
+
+The data contains 506 rows and 14 columns which represents crime rate in different Boston suburbs
+
+```{r checking the data def for q10, echo=FALSE, message = FALSE}
+?Boston
+boston$chas <- as.factor(boston$chas)
+```
+
+After checking the data definition for dataset, this data frame contains the following columns:
+
+**crim:** per capita crime rate by town.
+
+**zn:** proportion of residential land zoned for lots over 25,000 sq.ft.
+
+**indus:** proportion of non-retail business acres per town.
+
+**chas:** Charles River dummy variable (= 1 if tract bounds river; 0 otherwise).
+
+**nox:** nitrogen oxides concentration (parts per 10 million).
+
+**rm:** average number of rooms per dwelling.
+
+**age:** proportion of owner-occupied units built prior to 1940.
+
+**dis:** weighted mean of distances to five Boston employment centres.
+
+**rad:** index of accessibility to radial highways.
+
+**tax:** full-value property-tax rate per \$10,000.
+
+**ptratio:** pupil-teacher ratio by town.
+
+**black:** 1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town.
+
+**lstat:** lower status of the population (percent).
+
+**medv:** median value of owner-occupied homes in \$1000s.
+
+## (b) Make some pairwise scatterplots of the predictors (columns) in this data set. Describe your findings. 
+
+```{r checking correlations q10, echo=FALSE}
+pairs(boston)
+```
+
+```{r checking correlations with quantitative q10, echo=FALSE}
+cor(boston[,-4])
+```
+
+Crim seems to be highly correlated with rad and tax. Nox, indus; rad, tax are some other coefficients with high correlation
+
+
+## (c) Are any of the predictors associated with per capita crime rate? If so, explain the relationship.
+
+```{r checking correlations with crim q10, echo=FALSE}
+cor(boston[,-4])[2:13,1]
+```
+
+rad and tax seem to be highly correlated to crim. 
+
+```{r plotting scatterplots - crim q10, echo=FALSE, warnings = FALSE}
+library(ggplot2)
+par(mfrow=c(1,2))
+ggplot(boston, aes(x = rad, y = crim)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", formula = "y ~ x", col = "blue") +
+    labs(title = "rad vs crim", 
+       x = "rad", 
+       y = "crim")
+ggplot(boston, aes(x = tax, y = crim)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", formula = "y ~ x", col = "blue") +
+    labs(title = "tax vs crim", 
+       x = "tax", 
+       y = "crim")
+```
+
+## (d) Do any of the suburbs of Boston appear to have particularly high crime rates? Tax rates? Pupil-teacher ratios? Comment on the range of each predictor. 
+
+```{r range of variables q10, echo=FALSE, warnings = FALSE}
+summary(boston)[,c(1, 10, 11)]
+```
+
+```{r boxplots q10, echo=FALSE, warnings = FALSE}
+par(mfrow=c(1,3))
+boxplot(boston$crim)
+boxplot(boston$tax)
+boxplot(boston$ptratio)
+```
+
+For crime rates, some cities tend to have higher crime rates, thus the high amount of outliers. Tax has a large range and thus some suburbs have high tax rate than others. Pupil-teacher ratio still has a smaller range and thus the ratio is less different over different suburbs.
+
+## (e) How many of the suburbs in this data set bound the Charles river?
+
+```{r chas table q10, echo=FALSE, warnings = FALSE}
+table(boston$chas)
+```
+
+35 suburbs are bound by the river.
+
+## (f) What is the median pupil-teacher ratio among the towns in this data set?
+
+```{r median ptratio table q10, echo=FALSE, warnings = FALSE}
+median(boston$ptratio)
+```
+
+Most suburbs have 19.05 as the pupil teacher ratio.
+
+## (g) Which suburb of Boston has lowest median value of owneroccupied homes? What are the values of the other predictors for that suburb, and how do those values compare to the overall ranges for those predictors? Comment on your findings.
+
+```{r lowest median value table q10, echo=FALSE, warnings = FALSE}
+boston[boston$medv == min(boston$medv), ]
+summary(boston)
+```
+ Two suburbs have lowest median values, with value= 5k$. Compared to overall variables, it has high crim, age and lstat ranges along with indus, nox, rad, tax & ptratio.
+ 
+## (h) In this data set, how many of the suburbs average more than seven rooms per dwelling? More than eight rooms per dwelling? Comment on the suburbs that average more than eight rooms per dwelling.
+
+```{r more than 7 rms q10, echo=FALSE, warnings = FALSE}
+nrow(boston[boston$rm > 7,])
+```
+
+64 suburbs have >7 rooms on average per dwelling
+
+```{r more than 8 rms table q10, echo=FALSE, warnings = FALSE}
+nrow(boston[boston$rm > 8,])
+```
+
+13 suburbs have >8 rooms on average per dwelling
+
+The suburbs with more than 8 rooms have almost an avaerage distribution across variables except lstat and medv, whose values are too low and too high respectively, i.e might be posh suburbs 
+
+# 2) ISLR Chapter 3 Q15: This problem involves the Boston data set, which we saw in the lab for this chapter. We will now try to predict per capita crime rate using the other variables in this data set. In other words, per capita crime rate is the response, and the other variables are the predictors.
+
+## (a) For each predictor, fit a simple linear regression model to predict the response. Describe your results. In which of the models is there a statistically significant association between the predictor and the response? Create some plots to back up your assertions.
+
+```{r loading data and creating table for prediction values for each simple regression model q15, echo=FALSE, warnings = FALSE}
+data("Boston")
+boston = Boston
+
+regtable <- NULL
+regtable = data.frame("Variable" = 0, "R-Square"= 0, "Intercept"= 0, "Slope"= 0, "P-Value Variable"= 0)
+
+par(mfrow=c(2,2))
+for (i in 2:ncol(boston)){
+  x <- boston[,i]
+  lm.fit <- lm(boston$crim~ x)
+  regtable[(i-1),1] <- colnames(boston)[i]
+  regtable[(i-1),2] <- summary(lm.fit)$r.square
+  regtable[(i-1),3] <- summary(lm.fit)$coefficients[1,1]
+  regtable[(i-1),4] <- summary(lm.fit)$coefficients[2,1]
+  regtable[(i-1),5] <- summary(lm.fit)$coefficients[2,4]
+  
+  plot(boston$crim~x, xlab = colnames(boston)[i], ylab = "crim")
+  abline(lm.fit, lwd = 3, col = "blue")
+
+  
+}
+
+regtable
+```
+
+All the variables seem to have a p-value lower than 0.05 except chas (0.2049) and thus significant.
+
+
+## (b) Fit a multiple regression model to predict the response using all of the predictors. Describe your results. For which predictors can we reject the null hypothesis H0 : βj = 0?
+
+```{r predictions via multi regression model q15, echo=FALSE, warnings = FALSE}
+lm.fitall <- lm(crim~., data = boston)
+summary(lm.fitall)
+```
+
+Null hypothesis can be rejected for zn, dis, rad, black and medv. For other variables, the p-value is above 0.05 and thus not good enough to reject null hypothesis for these values
+
+## (c) How do your results from (a) compare to your results from (b)? Create a plot displaying the univariate regression coefficients from (a) on the x-axis, and the multiple regression coefficients from (b) on the y-axis. That is, each predictor is displayed as a single point in the plot. Its coefficient in a simple linear regression model is shown on the x-axis, and its coefficient estimate in the multiple linear regression model is shown on the y-axis. 
+
+```{r simple vs multi reg coeff comparison q15, echo=FALSE, warnings = FALSE}
+combined <- cbind(regtable$Slope, as.data.frame(summary(lm.fitall)$coefficients[2:14,1])) 
+
+ggplot(combined, aes(x = `regtable$Slope`, y = `summary(lm.fitall)$coefficients[2:14, 1]`, color = "red")) + 
+  geom_jitter() + 
+  labs(title = "Regression coefficients", 
+       x = "Simple Regression", 
+       y = "Multiple Regression")
+```
+
+## (d) Is there evidence of non-linear association between any of the predictors and the response? To answer this question, for each predictor X, fit a model of the form Y = β0 + β1X + β2X2 + β3X3 + e.
+
+```{r non linear association regression q15, echo=FALSE, warnings = FALSE}
+#regtable2 <- NULL
+#regtable2 = data.frame("Variable" = 0, "R-Square"= 0, "Intercept"= 0, "SlopeLinear"= 0, "P-ValueLinear"= 0, "SlopeQuad"= 0, "P-ValueQuad"= 0, "SlopeCub"= 0, "P-ValueCub"= 0)
+
+#for (i in 2:ncol(boston)){
+ # x <- boston[,i]
+  #lm.fit <- lm(boston$crim ~ x+I(x^2)+I(x^3))
+  #regtable2[(i-1),1] <- colnames(boston)[i]
+  #regtable2[(i-1),2] <- summary(lm.fit)$r.square
+  #regtable2[(i-1),3] <- summary(lm.fit)$coefficients[1,1]
+  #regtable2[(i-1),4] <- summary(lm.fit)$coefficients[2,1]
+  #regtable2[(i-1),5] <- summary(lm.fit)$coefficients[2,4]
+  #regtable2[(i-1),6] <- summary(lm.fit)$coefficients[3,1]
+  #regtable2[(i-1),7] <- summary(lm.fit)$coefficients[3,4]
+  #regtable2[(i-1),8] <- summary(lm.fit)$coefficients[4,1]
+  #regtable2[(i-1),9] <- summary(lm.fit)$coefficients[4,4]
+#}
+
+#regtable2
+```
+
+
+
+# 3) ISLR Chapter 6 Q9: In this exercise, we will predict the number of applications received using the other variables in the College data set.
+
+## (a) Split the data set into a training set and a test set.
+
+```{r split data to train and test q9, echo=FALSE, warnings = FALSE}
+data(College)
+college = College
+set.seed(123)
+subset <- sample(1:nrow(college), nrow(college)*0.8)
+
+train <- college[subset,]
+test <- college[-subset,]
+dim(college)
+nrow(train)
+```
+ Out of 777 observations, we've kept 621 in train
+ 
+## (b) Fit a linear model using least squares on the training set, and report the test error obtained.
+
+```{r simple linear model q9, echo=FALSE, warnings = FALSE}
+lm.fit <- lm(Apps~., data = train)
+summary(lm.fit)
+```
+```{r simple linear model rmse q9-1, echo=FALSE, warnings = FALSE}
+pred <- predict(lm.fit, newdata = test)
+mean((test$Apps - pred)^2) %>% sqrt()
+```
+
+RMSE for linear model using OLS : 1449.199
+
+## (c) Fit a ridge regression model on the training set, with λ chosen by cross-validation. Report the test error obtained.
+
+```{r ridge q9, echo=FALSE, message = FALSE, warnings = FALSE}
+library(glmnet)
+library(caret)
+train_matrix = model.matrix(Apps~., train)
+test_matrix = model.matrix(Apps~., test)
+ridge.fit = cv.glmnet(train_matrix,train$Apps, alpha = 0, lambda = 10^seq(10, -2, length = 100))
+plot(ridge.fit)
+```
+
+```{r ridge rmse q9, echo=FALSE, message = FALSE, warnings = FALSE}
+best = ridge.fit$lambda.min
+ridge.pred=predict(ridge.fit,s=best ,newx=test_matrix)
+mean((ridge.pred -test$Apps)^2) %>% sqrt()
+```
+
+## (d) Fit a lasso model on the training set, with λ chosen by crossvalidation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+
+```{r lasso q9, echo=FALSE, message = FALSE, warnings = FALSE}
+lasso.fit = cv.glmnet(train_matrix,train$Apps, alpha = 1, lambda = 10^seq(10, -2, length = 100))
+plot(lasso.fit)
+
+coeff = predict(lasso.fit, type = 'coefficients', s = lasso.fit$lambda.min)
+coeff
+```
+
+```{r lasso rmse q9, echo=FALSE, message = FALSE, warnings = FALSE}
+best = lasso.fit$lambda.min
+lasso.pred=predict(lasso.fit,s=best ,newx=test_matrix)
+mean((lasso.pred -test$Apps)^2) %>% sqrt()
+
+```
+
+## (e) Fit a PCR model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value of M selected by cross-validation.
+
+```{r pcr q9, echo=FALSE, message = FALSE, warnings = FALSE}
+pcr.fit = pcr(Apps~., data = train, scale = TRUE, validation = "CV")
+summary(pcr.fit)
+validationplot(pcr.fit, val.type = "RMSE")
+
+```
+
+```{r pcr rmse q9, echo=FALSE, message = FALSE, warnings = FALSE}
+pcr.pred = predict(pcr.fit, test, ncomp = 17)
+mean((pcr.pred -test$Apps)^2) %>% sqrt()
+
+```
+
+## (f) Fit a PLS model on the training set, with M chosen by crossvalidation. Report the test error obtained, along with the value of M selected by cross-validation.
+
+```{r pls q9, echo=FALSE, message = FALSE, warnings = FALSE}
+library(pls)
+pls.fit <- plsr(Apps ∼., data=train ,scale=TRUE, validation ="CV")
+summary(pls.fit)
+validationplot(pls.fit, val.type = "RMSE")
+```
+
+```{r pls rmse q9, echo=FALSE, message = FALSE, warnings = FALSE}
+pls.pred = predict(pls.fit, test, ncomp = 9)
+mean((pls.pred -test$Apps)^2) %>% sqrt()
+```
+
+## (g) Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference among the test errors resulting from these five approaches?
+
+PCR, OLS and PLS have similar predictions, but not much difference within the techniques
+
+
+# 4) ISLR Chapter 6 Q11: We will now try to predict per capita crime rate in the Boston data set.
+
+## (a) Try out some of the regression methods explored in this chapter, such as best subset selection, the lasso, ridge regression, and PCR. Present and discuss results for the approaches that you consider.
+
+```{r training test division for q11, echo=FALSE, message = FALSE, warnings = FALSE}
+library(caret)
+library(leaps)
+
+data("Boston")
+boston = Boston
+
+set.seed(123)
+subset <- sample(1:nrow(boston), nrow(boston)*0.8)
+
+train <- boston[subset,]
+test <- boston[-subset,]
+
+```
+
+
+## (b) Propose a model (or set of models) that seem to perform well on this data set, and justify your answer. Make sure that you are evaluating model performance using validation set error, crossvalidation, or some other reasonable alternative, as opposed to using training error.
+
+
+
+
+## (c) Does your chosen model involve all of the features in the data set? Why or why not?
+
+
+
+
+# 5) ISLR Chapter 4 Q10: This question should be answered using the Weekly data set, which is part of the ISLR package. This data is similar in nature to the Smarket data from this chapter’s lab, except that it contains 1, 089 weekly returns for 21 years, from the beginning of 1990 to the end of 2010.
+
+## (a) Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
+
+```{r summaries for weekly data for q10, echo=FALSE, message = FALSE, warnings = FALSE}
+library(ISLR)
+library(dplyr)
+library(ggplot2)
+library(caret)
+
+weekly = Weekly
+
+pairs(weekly)
+
+cor(weekly[,-9])
+
+table(weekly$Direction)
+
+weekly$week <- 1:nrow(weekly)
+week_year <- weekly %>%
+  group_by(Year) %>%
+  summarize(week = min(week))
+
+par(mfrow=c(1,2))
+
+ggplot(weekly, aes(x = week, y = Volume)) + 
+  geom_line() + 
+  geom_smooth() + 
+  scale_x_continuous(breaks = week_year$week, minor_breaks = NULL, labels = week_year$Year) + 
+  labs(title = "Volume", 
+       x = "Year")
+
+ggplot(weekly, aes(x = week, y = Today)) + 
+  geom_line() + 
+  scale_x_continuous(breaks = week_year$week, minor_breaks = NULL, labels = week_year$Year)
+```
+There seems to be some pattern in the pred intervals.
+
+## (b) Use the full data set to perform a logistic regression with Direction as the response and the five lag variables plus Volume as predictors. Use the summary function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+
+```{r log reg for q10, echo=FALSE, message = FALSE, warnings = FALSE}
+glm.fit <- glm(Direction ∼ Lag1+Lag2+Lag3+Lag4+Lag5+Volume ,
+               data=weekly ,family =binomial)
+summary(glm.fit)
+
+```
+
+
+## (c) Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
+
+```{r log reg pred accuracy for q10, echo=FALSE, message = FALSE, warnings = FALSE}
+predicted <- factor(ifelse(predict(glm.fit, type = "response") < 0.5, "Down", "Up"))
+
+cm <- confusionMatrix(as.factor(ifelse(predict(glm.fit, type = "response") < 0.5, "Down", "Up")), weekly$Direction) 
+cm
+(cm$table[1,1]+cm$table[2,2])/nrow(weekly)
+```
+
+
+## (d) Now fit the logistic regression model using a training data period from 1990 to 2008, with Lag2 as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
+
+```{r log reg pred accuracy on test set for q10, echo=FALSE, message = FALSE, warnings = FALSE}
+glm.fit2 <- glm(Direction ∼ Lag2,
+                data=weekly[weekly$Year<=2008,] ,family =binomial)
+cm <- confusionMatrix(as.factor(ifelse(predict(glm.fit2, newdata = weekly[weekly$Year>2008,], type = "response") < 0.5, "Down", "Up")), weekly[weekly$Year>2008,9]) 
+cm
+```
+
+## (g) Repeat (d) using KNN with K = 1.
+
+```{r knn for q10, echo=FALSE, message = FALSE, warnings = FALSE}
+
+```
+
+
+## (h) Which of these methods appears to provide the best results on this data?
+
+## (i) Experiment with different combinations of predictors, including possible transformations and interactions, for each of the methods. Report the variables, method, and associated confusion matrix that appears to provide the best results on the held out data. Note that you should also experiment with values for K in the KNN classifier.
+
+
+# 6) ISLR Chapter 8 Q8: In the lab, a classification tree was applied to the Carseats data set after converting Sales into a qualitative response variable. Now we will seek to predict Sales using regression trees and related approaches, treating the response as a quantitative variable.
+
+## (a) Split the data set into a training set and a test set.
+
+```{r split data in train and test q8, echo=FALSE, message = FALSE, warnings = FALSE}
+library(ISLR)
+data(Carseats)
+carseats = Carseats
+
+set.seed(123)
+subset <- sample(1:nrow(carseats), nrow(carseats)*0.8)
+
+train <- carseats[subset,]
+test <- carseats[-subset,]
+```
+
+## (b) Fit a regression tree to the training set. Plot the tree, and interpret the results. What test MSE do you obtain?
+
+```{r tree model q8, echo=FALSE, message = FALSE, warnings = FALSE}
+library(rpart)
+library(rpart.plot)
+
+tree <- rpart(Sales~., train)
+rpart.plot(tree)
+
+summary(tree)
+
+tree.pred = predict(tree, test)
+mean((tree.pred -test$Sales)^2) %>% sqrt()
+mean(train$Sales)
+mean((tree.pred -test$Sales)^2) %>% sqrt()/mean(train$Sales)
+```
+
+## (c) Use cross-validation in order to determine the optimal level of tree complexity. Does pruning the tree improve the test MSE?
+
+```{r cv tree model q8, echo=FALSE, message = FALSE, warnings = FALSE}
+library(tree)
+tree.cv <- cv.tree(tree(Sales~.,train), FUN = prune.tree)
+
+plot(tree.cv$size, tree.cv$dev, type = "b")
+plot(tree.cv$size, tree.cv$dev, type = "b")
+
+prune.cv <- prune.tree(tree(Sales~., train), best = 11)
+plot(prune.cv)
+text(prune.cv, pretty = 0)
+treecv.pred = predict(prune.cv, test)
+mean((treecv.pred -test$Sales)^2) %>% sqrt()
+```
+
+## (d) Use the bagging approach in order to analyze this data. What test MSE do you obtain? Use the importance() function to determine which variables are most important.
+
+```{r bagging model q8, echo=FALSE, message = FALSE, warnings = FALSE}
+library(randomForest)
+rf.fit <- randomForest(Sales~., train, mtry = ncol(train)-1, importance = TRUE)
+rf.fit
+
+rf.pred = predict(rf.fit, test)
+mean((rf.pred -test$Sales)^2) %>% sqrt()
+
+plot(rf.pred, test$Sales)
+abline(0,1)
+
+importance(rf.fit)
+varImpPlot(rf.fit)
+
+```
+
+## (e) Use random forests to analyze this data. What test MSE do you obtain? Use the importance() function to determine which variables aremost important. Describe the effect of m, the number of variables considered at each split, on the error rate obtained.
+
+```{r random forest model q8, echo=FALSE, message = FALSE, warnings = FALSE}
+train_Control <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+tunegrid <- expand.grid(.mtry = c(1:ncol(train)-1))
+set.seed(123)
+
+rfmodel <- randomForest(Sales ~ .,data = train, control = train_control, tuneGrid = tunegrid)
+rfmodel
+
+rfmodel.pred = predict(rfmodel, test)
+mean((rfmodel.pred -test$Sales)^2) %>% sqrt()
+
+plot(rfmodel.pred, test$Sales)
+abline(0,1)
+
+importance(rfmodel)
+varImpPlot(rfmodel)
+
+```
+
+
+# 7) ISLR Chapter 8 Q11: This question uses the Caravan data set.
+
+## (a) Create a training set consisting of the first 1,000 observations, and a test set consisting of the remaining observations.
+
+```{r test train split q11, echo=FALSE, message = FALSE, warnings = FALSE}
+data(Caravan)
+caravan = Caravan
+
+set.seed(123)
+subset <- sample(1:nrow(caravan), nrow(caravan)-1000)
+
+train <- caravan[subset,]
+test <- caravan[-subset,]
+
+```
+
+
+## (b) Fit a boosting model to the training set with Purchase as the response and the other variables as predictors. Use 1,000 trees, and a shrinkage value of 0.01. Which predictors appear to be the most important?
+
+```{r boost model q11, echo=FALSE, message = FALSE, warnings = FALSE}
+library(gbm)
+boostmodel <- gbm(Purchase~., data = train, distribution = "gaussian", n.trees = 1000, interaction.depth = 2, shrinkage = 0.01)
+summary(boostmodel)
+```
+
+PPERSAUT, PPLEZEIER seem to be some of the most important variables.
+
+## (c) Use the boosting model to predict the response on the test data. Predict that a person will make a purchase if the estimated probability of purchase is greater than 20 %. Form a confusion matrix. What fraction of the people predicted to make a purchase do in fact make one? How does this compare with the results obtained from applying KNN or logistic regression to this data set?
+
+
+
+# 8) Exam Questions - Problem 1: Beauty pays!
+
+## 1. Using the data, estimate the effect of "beauty" into course ratings. Make sure to think about the potential many \other determinants". Describe your analysis and your conclusions.
+
+
+```{r modeling problem 1, echo=FALSE, message = FALSE, warnings = FALSE}
+beauty = read.csv('BeautyData.csv')
+beauty$female <- as.factor(beauty$female)
+beauty$nonenglish <- as.factor(beauty$nonenglish)
+beauty$lower <- as.factor(beauty$lower)
+beauty$tenuretrack <- as.factor(beauty$tenuretrack)
+
+#correlation and analysis
+cor(beauty$CourseEvals, beauty$BeautyScore)
+
+boxplot(beauty$female, beauty$CourseEvals)
+boxplot(beauty$lower, beauty$CourseEvals)
+boxplot(beauty$nonenglish, beauty$CourseEvals)
+boxplot(beauty$tenuretrack, beauty$CourseEvals)
+
+#single determinant
+unimodel <- lm(CourseEvals~BeautyScore, data = beauty)
+summary(unimodel)
+```
+
+Looking at the results, beauty score has a very high impact on course evaluation with positive correlation.
+
+```{r modeling problem 1 - multiple regression, echo=FALSE, message = FALSE, warnings = FALSE}
+multimodel <- lm(CourseEvals~., data = beauty)
+summary(multimodel)
+```
+ Other factors too seem to have a high impact on course evaluation: butr in a negative way.
+
+## 2. In his paper, Dr. Hamermesh has the following sentence: "Disentangling whether this outcome represents productivity or discrimination is, as with the issue generally, probably impossible". Using the concepts we have talked about so far, what does he mean by that?
+
+These results do not confirm that course evaluation solely depends on beauty and factors as gender, english, position or tenure. Other factors like productivity might also be coming in play, thus without analyzing more data around the subset being considered it is highly impossible to make a definite statement on causation of course evaluation.
+
+# 9) Exam Questions - Problem 2: Housing Price Structure
+
+## 1. Is there a premium for brick houses everything else being equal?
+
+```{r brick, echo=FALSE, message = FALSE, warnings = FALSE}
+midcity <- read.csv("MidCity.csv")
+midcity$Nbhd <- as.factor(midcity$Nbhd)
+mid <- dummyVars(" ~ .", data = midcity)
+mid1 <- data.frame(predict(mid, newdata = midcity))
+
+mid.model <- lm(Price~., data = mid1[,-c(1:2,7)])
+summary(mid.model)
+confint(mid.model)
+```
+Brick is a significant variable with non zero confidence interval. Thus, people might be paying a premium for brick houses
+
+
+## 2. Is there a premium for houses in neighborhood 3?
+
+Nbhd3 is a significant variable with non zero confidence interval. Thus, people might be paying a premium for living in a better neighborhood as nbhd 3
+
+
+## 3. Is there an extra premium for brick houses in neighborhood 3?
+
+```{r neighborhood3+brick, echo=FALSE, message=FALSE, warnings=FALSE}
+boxplot(Price~Nbhd.3+BrickYes, data = mid1)
+```
+
+From the plot, it seems price for brick and nbhd 3 houses is high and thus it might be the case that such houses have high premium.
+
+## 4. For the purposes of prediction could you combine the neighborhoods 1 and 2 into a single "older" neighborhood?
+
+As seen previously, Nbhd2 is not such a significant variable, and thus can be clubbed with Nbhd1.
+
+# 10) Exam Questions - Problem 3: What causes what??
+
+## 1. Why can't I just get data from a few different cities and run the regression of "Crime" on "Police" to understand how more cops in the streets affect crime? ("Crime" refers to some measure of crime rate and "Police" measures the number of cops in a city)
+
+It is not justified to consider no. of cops or no. of crimes to be directly affecting each other. Lesser police can lead to more crimes or more police could have been deployed for higher crimes. Also, the crimes vary in degree of severity, so it might be possible that the task force required for crimes pertaining to certain geography might be different. Also, data from a few different cities itself is a very small data to comment on or base our judgement on.
+
+
+## 2. How were the researchers from UPENN able to isolate this effect? Briefly describe their approach and discuss their result in the "Table 2" below.
+
+They deployed police for reasons a=other than crime, especifically street crime. They used the terrorist alert system which indicates how much a city is vulnerable to terrorist activity on a day. So on high risk days, there was more police on the roads, the researchers observed this reduced street crime.
+
+From the table, we see that there's a negative relationship between high alert and number of crimes, the same is also true when controlling for metro ridership as both the models have a negative coefficient on high alert variable.Also the value of Rsquare is very small.
+
+## 3. Why did they have to control for METRO ridership? What was that trying to capture? 
+
+They thought it's possible that on high terrorism risk days, there will be less people traveling in the city and as a result there would be lesser number of people who will be victimized by street crime. So they analyzed the metro ridership data to make sure that the reduced crime was not a result of reduced number of possible victims and not the police.
+
+## 4. In the next page, I am showing you "Table 4" from the research paper. Just focus on the first column of the table. Can you describe the model being estimated here? What is the conclusion?
+
+The model being estimated is trying to understand the effect of high alert on diff districts of DC, on total crimes. They introduced 2 variables depicting interaction of high alert with district 1 and one with other districts. We see that effect of high alert on crimes of district 1 is higher than that of other districts, due to the larger magnitude of the negative coefficient on the 1st variable. 
+
+
+# 11) Exam Questions - Problem 4: Neural Nets
+
+```{r neural net, echo=FALSE, message = FALSE, warnings = FALSE}
+data(Boston)
+boston = Boston
+
+library(nnet)
+
+##standardization
+minv = rep(0,ncol(boston)-1)
+maxv = rep(0,ncol(boston)-1)
+bostonsc = boston
+for(i in 1:(ncol(boston)-1)) {
+minv[i] = min(boston[[i]])
+maxv[i] = max(boston[[i]])
+bostonsc[[i]] = (boston[[i]]-minv[i])/(maxv[i]-minv[i])
+}
+
+#division in train and test
+
+set.seed(123)
+subset <- sample(1:nrow(bostonsc), nrow(bostonsc)*0.8)
+
+train <- bostonsc[subset,]
+test <- bostonsc[-subset,]
+
+znn = nnet(crim~.,train,size=5,decay=.1,linout=T)
+fznn = predict(znn,test)
+
+mean((fznn -test$crim)^2) %>% sqrt()
+
+```
+
+```{r cv neural net, echo=FALSE, message = FALSE, warnings = FALSE}
+# #fitControl <- trainControl(method = "repeatedcv", 
+#                            number = 10, 
+#                            repeats = 5)
+# 
+# nnetGrid <-  expand.grid(size = seq(from = 1, to = 10, by = 1),
+#                         decay = seq(from = 0.1, to = 0.5, by = 0.1))
+# 
+# nnetFit <- train(crim ~ ., 
+#                  data = train,
+#                  method = "nnet",
+#                  trControl = fitControl,
+#                  tuneGrid = nnetGrid,
+#                  verbose = FALSE)
+# 
+# fznncv = predict(nnetFit$finalModel,test)
+# 
+# mean((fznncv -test$crim)^2) %>% sqrt()
+
+```
+
+The RMSE from 
+
+# 12) Exam Questions - Problem 5: Contribution to final group project
+
+I was a part of Group 1- Morning 10-12 batch and we worked on a dataset based on employee attrition (sourced from Kaggle). The data consisted of ~1500 employees and 35 variables related to their job - salary, satisfaction, experience (both past and present), work life balance and personal details like age, distance from home etc. Our methodology was to first indulge in preliminary data preparation and exploration, then modelling, and finally figuring the factors that affected the most to understand business implications of the problems.
+
+We worked on a wide variety of models, knn, trees, regressions; out of which I worked on understanding the data and forecasting via decidion trees and other ensemble methods. After some preliminary analysis and data preparataion, I removed a few and created some variables that intuitively could have impacted attrition like avg tenure of an individual employee based on past experience and working hours per week which proved to highly correlated with attrition.
+
+The approach next was twofold:
+1. Model prediction on all the variables
+2. Using a subset of variables got from fitting a basic random forest model via feature importance
+
+Also the data was imbalanced so oversampling proved to be helpful.
+
+First I modelled decision trees, which gave a lower bound of accuracy as 75% with both the models. Second, I tried random forest modelling with some tuning and updating class weights to 5:1 to improve recall. This significantly improved the accuracy to 87.7% with the model using all variables, but the model using subset of variables didn't perform so well and gave ~86% accuracy which might be due to loss of information. Last I went for XGBoosting, which gave similar accuracy (~87.5%) post cross validation, but much better recall and thus better prediction.
+
+Finally, I analysed the importance of different factors around attrition. Salary components like monthly income, hourly daily rates etc. , hikes, promotions and stock options , age, avg tenure/ working hours & experience and satisfaction levels for environment/ job/ relationship affected attrition inversely. Factors like work hours and distance from home were some parameters that affected attrition too.
+
+
+
+
+
+
+
+
+
+
